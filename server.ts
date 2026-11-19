@@ -6,6 +6,7 @@ import fs from "fs";
 import path from "path";
 import { createServer as createViteServer } from "vite";
 import gerarHistoriaHandler from "./api/gerar-historia";
+import gerarUniversoHandler from "./api/gerar-universo";
 
 const PORT = Number(process.env.PORT) || 3000;
 const isProd = process.env.NODE_ENV === "production";
@@ -14,7 +15,7 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Mount Vercel serverless handler locally for AI Studio preview & local dev
+  // Mount Vercel serverless handlers locally for AI Studio preview & local dev
   app.all("/api/gerar-historia", async (req, res) => {
     try {
       await gerarHistoriaHandler(
@@ -25,6 +26,20 @@ async function startServer() {
       console.error("[server] Erro inesperado em /api/gerar-historia:", error);
       if (!res.headersSent) {
         res.status(500).json({ error: "Erro interno ao gerar história." });
+      }
+    }
+  });
+
+  app.all("/api/gerar-universo", async (req, res) => {
+    try {
+      await gerarUniversoHandler(
+        req as unknown as VercelRequest,
+        res as unknown as VercelResponse
+      );
+    } catch (error) {
+      console.error("[server] Erro inesperado em /api/gerar-universo:", error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Erro interno ao pesquisar universo." });
       }
     }
   });

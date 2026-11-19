@@ -33,6 +33,7 @@ import { ArchiveStamp } from "../components/ArchiveStamp";
 import { EmptyArchive } from "../components/EmptyArchive";
 import { LoadingArchive } from "../components/LoadingArchive";
 import { ConfirmDeleteModal } from "../components/admin/ConfirmDeleteModal";
+import { GerarUniversoModal } from "../components/admin/GerarUniversoModal";
 import { HistoriaModal } from "../components/admin/HistoriaModal";
 import { UniversoModal } from "../components/admin/UniversoModal";
 import { useAuth } from "../contexts/AuthContext";
@@ -61,6 +62,7 @@ export function AdminPage() {
   // Modals state
   const [universoModalOpen, setUniversoModalOpen] = useState(false);
   const [editingUniverso, setEditingUniverso] = useState<Universo | null>(null);
+  const [gerarUniversoModalOpen, setGerarUniversoModalOpen] = useState(false);
 
   const [historiaModalOpen, setHistoriaModalOpen] = useState(false);
   const [editingHistoria, setEditingHistoria] = useState<Historia | null>(null);
@@ -727,17 +729,27 @@ export function AdminPage() {
                   </h1>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingUniverso(null);
-                    setUniversoModalOpen(true);
-                  }}
-                  className="w-full sm:w-auto min-h-[46px] inline-flex items-center justify-center gap-2 px-5 py-3 bg-[#C5A059] text-[#0E0E0E] border border-[#C5A059] font-mono text-xs font-bold uppercase tracking-[0.12em] hover:bg-transparent hover:text-[#C5A059] transition-colors cursor-pointer whitespace-nowrap shrink-0"
-                >
-                  <Plus className="w-4 h-4" aria-hidden="true" />
-                  <span>Novo Universo</span>
-                </button>
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setGerarUniversoModalOpen(true)}
+                    className="w-full sm:w-auto min-h-[46px] inline-flex items-center justify-center gap-2 px-5 py-3 bg-transparent text-[#C5A059] border border-[#C5A059] font-mono text-xs font-bold uppercase tracking-[0.12em] hover:bg-[#C5A059] hover:text-[#0E0E0E] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <span>✦ Gerar universo com IA</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingUniverso(null);
+                      setUniversoModalOpen(true);
+                    }}
+                    className="w-full sm:w-auto min-h-[46px] inline-flex items-center justify-center gap-2 px-5 py-3 bg-[#C5A059] text-[#0E0E0E] border border-[#C5A059] font-mono text-xs font-bold uppercase tracking-[0.12em] hover:bg-transparent hover:text-[#C5A059] transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-4 h-4" aria-hidden="true" />
+                    <span>Novo Universo</span>
+                  </button>
+                </div>
               </div>
 
               {loading ? (
@@ -905,6 +917,13 @@ export function AdminPage() {
       </main>
 
       {/* Modals */}
+      <GerarUniversoModal
+        open={gerarUniversoModalOpen}
+        existingUniversos={universos}
+        onClose={() => setGerarUniversoModalOpen(false)}
+        onRefresh={loadAll}
+      />
+
       <UniversoModal
         open={universoModalOpen}
         editingUniverso={editingUniverso}
