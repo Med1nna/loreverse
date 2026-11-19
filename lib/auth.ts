@@ -52,6 +52,17 @@ export async function getSession(): Promise<AuthSession | null> {
   return mapSession(data.session);
 }
 
+export async function getAccessToken(): Promise<string | null> {
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error) {
+    console.error("[LoreVerse] Erro em getAccessToken:", error);
+    return null;
+  }
+
+  return data.session?.access_token ?? null;
+}
+
 export async function signIn(
   email: string,
   password: string

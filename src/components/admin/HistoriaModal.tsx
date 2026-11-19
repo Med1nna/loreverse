@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
+import { getAccessToken } from "../../../lib/auth";
 import {
   CATEGORIAS,
   type Categoria,
@@ -28,6 +29,11 @@ interface FormErrors {
   imagem_capa_url?: string;
 }
 
+interface GeneratedDraft {
+  resumo: string;
+  conteudo: string;
+}
+
 export function HistoriaModal({
   open,
   editingHistoria,
@@ -40,20 +46,31 @@ export function HistoriaModal({
   const [universoId, setUniversoId] = useState("");
   const [titulo, setTitulo] = useState("");
   const [categoria, setCategoria] = useState<Categoria>("Personagem");
+  const [orientacoes, setOrientacoes] = useState("");
   const [resumo, setResumo] = useState("");
   const [conteudo, setConteudo] = useState("");
   const [imagemCapaUrl, setImagemCapaUrl] = useState("");
   const [errors, setErrors] = useState<FormErrors>({});
+
+  const [generating, setGenerating] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [pendingGenerated, setPendingGenerated] = useState<GeneratedDraft | null>(
+    null
+  );
 
   useEffect(() => {
     if (open) {
       setUniversoId(editingHistoria?.universo_id ?? universos[0]?.id ?? "");
       setTitulo(editingHistoria?.titulo ?? "");
       setCategoria(editingHistoria?.categoria ?? "Personagem");
+      setOrientacoes("");
       setResumo(editingHistoria?.resumo ?? "");
       setConteudo(editingHistoria?.conteudo ?? "");
       setImagemCapaUrl(editingHistoria?.imagem_capa_url ?? "");
       setErrors({});
+      setGenerating(false);
+      setAiError(null);
+      setPendingGenerated(null);
     }
   }, [open, editingHistoria, universos]);
 
@@ -63,16 +80,102 @@ export function HistoriaModal({
     document.body.style.overflow = "hidden";
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !submitting) onClose();
+      if (e.key === "Escape" && !submitting && !generating) onClose();
     };
     window.addEventListener("keydown", handleKey);
     return () => {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", handleKey);
     };
-  }, [open, submitting, onClose]);
+  }, [open, submitting, generating, onClose]);
 
   if (!open) return null;
+
+  const selectedUniverso = universos.find((u) => u.id === universoId);
+  const canGenerateWithAI = Boolean(
+    selectedUniverso && titulo.trim() && categoria && !generating && !submitting
+  );
+
+  const applyGeneratedDraft = (draft: GeneratedDraft) => {
+    setResumo(draft.resumo);
+    setConteudo(draft.conteudo);
+    setPendingGenerated(null);
+    setErrors((prev) => ({
+      ...prev,
+      resumo: undefined,
+      conteudo: undefined,
+    }));
+  };
+
+  const handleGenerateWithAI = async () => {
+    if (!selectedUniverso || !titulo.trim() || !categoria) return;
+
+    setAiError(null);
+    setPendingGenerated(null);
+    setGenerating(true);
+
+    try {
+      const token = await getAccessToken();
+      if (!token) {
+        setAiError("Sua sessão expirou. Entre novamente.");
+        return;
+      }
+
+      const response = await fetch("/api/gerar-historia", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          universo: selectedUniverso.nome,
+          titulo: titulo.trim(),
+          categoria,
+          orientacoes: orientacoes.trim() || undefined,
+        }),
+      });
+
+      if (response.status === 401) {
+        setAiError("Sua sessão expirou. Entre novamente.");
+        return;
+      }
+
+      if (response.status === 429) {
+        setAiError("Limite gratuito da IA atingido. Tente novamente mais tarde.");
+        return;
+      }
+
+      if (!response.ok) {
+        setAiError("Não foi possível gerar o texto agora.");
+        return;
+      }
+
+      const data = (await response.json()) as {
+        resumo?: string;
+        conteudo?: string;
+      };
+
+      if (!data.resumo || !data.conteudo) {
+        setAiError("Não foi possível gerar o texto agora.");
+        return;
+      }
+
+      const draft: GeneratedDraft = {
+        resumo: data.resumo,
+        conteudo: data.conteudo,
+      };
+
+      if (resumo.trim() || conteudo.trim()) {
+        setPendingGenerated(draft);
+      } else {
+        applyGeneratedDraft(draft);
+      }
+    } catch {
+      setAiError("Não foi possível gerar o texto agora.");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const validate = (): FormErrors => {
     const next: FormErrors = {};
@@ -142,7 +245,7 @@ export function HistoriaModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting || generating}
             aria-label="Fechar janela"
             className="w-11 h-11 min-w-[44px] min-h-[44px] inline-flex items-center justify-center border border-[#987654]/45 text-[#B3A898] hover:text-[#E8DFD0] hover:border-[#C5A059] transition-colors cursor-pointer disabled:opacity-50 shrink-0"
           >
@@ -296,6 +399,87 @@ export function HistoriaModal({
               )}
             </div>
 
+            {/* AI Story Generator Block (above Resumo) */}
+            <div className="bg-[#161616] border border-[#987654]/40 p-4 space-y-3">
+              <label
+                htmlFor="hist-orientacoes-ia"
+                className="block font-mono text-[11px] uppercase tracking-[0.11em] text-[#C5A059]"
+              >
+                Orientações para a IA (opcional)
+              </label>
+
+              <div className="flex flex-col sm:flex-row sm:items-stretch gap-3">
+                <textarea
+                  id="hist-orientacoes-ia"
+                  rows={2}
+                  disabled={generating}
+                  value={orientacoes}
+                  onChange={(e) => setOrientacoes(e.target.value)}
+                  placeholder="Ex.: foque na infância do personagem"
+                  className="flex-1 bg-[#0E0E0E] border border-[#987654]/45 focus:border-[#C5A059] px-3.5 py-2.5 font-serif text-[15px] leading-relaxed text-[#E8DFD0] placeholder:text-[#726A5E] focus:outline-none resize-y disabled:opacity-60"
+                />
+
+                <button
+                  type="button"
+                  onClick={handleGenerateWithAI}
+                  disabled={!canGenerateWithAI}
+                  className="min-h-[46px] sm:self-end px-4 py-2.5 bg-transparent border border-[#C5A059] text-[#C5A059] font-mono text-[11px] font-bold uppercase tracking-[0.11em] hover:bg-[#C5A059] hover:text-[#0E0E0E] transition-colors cursor-pointer whitespace-nowrap shrink-0 inline-flex items-center justify-center gap-2 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-[#C5A059]"
+                >
+                  {generating ? (
+                    <>
+                      <span className="inline-block w-2 h-2 bg-[#C5A059] animate-pulse" />
+                      <span>Consultando os arquivos...</span>
+                    </>
+                  ) : (
+                    <span>✦ Gerar com IA</span>
+                  )}
+                </button>
+              </div>
+
+              {!selectedUniverso || !titulo.trim() ? (
+                <p className="font-mono text-[10px] text-[#726A5E]">
+                  Preencha Universo, Título e Categoria para habilitar a geração.
+                </p>
+              ) : null}
+
+              {aiError && (
+                <div
+                  role="alert"
+                  className="bg-[#1C1A17] border border-[#DF6C4F]/80 px-3.5 py-2.5 font-serif text-[14px] text-[#FFB4A2]"
+                >
+                  {aiError}
+                </div>
+              )}
+
+              {pendingGenerated && (
+                <div
+                  role="alertdialog"
+                  aria-label="Confirmar substituição de texto"
+                  className="bg-[#1C1A17] border border-[#C5A059] p-4 space-y-3"
+                >
+                  <p className="font-serif text-[15px] text-[#E8DFD0]">
+                    Substituir o texto atual pelo gerado pela IA?
+                  </p>
+                  <div className="flex flex-wrap items-center justify-end gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setPendingGenerated(null)}
+                      className="min-h-[44px] px-4 py-2 bg-transparent border border-[#987654]/60 text-[#E8DFD0] font-mono text-[11px] uppercase tracking-[0.11em] hover:bg-[#161616] transition-colors cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => applyGeneratedDraft(pendingGenerated)}
+                      className="min-h-[44px] px-4 py-2 bg-[#C5A059] text-[#0E0E0E] border border-[#C5A059] font-mono text-[11px] font-bold uppercase tracking-[0.11em] hover:bg-transparent hover:text-[#C5A059] transition-colors cursor-pointer"
+                    >
+                      Substituir
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <label
                 htmlFor="hist-resumo"
@@ -367,14 +551,14 @@ export function HistoriaModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
+              disabled={submitting || generating}
               className="flex-1 sm:flex-none min-h-[46px] px-5 py-2.5 bg-transparent border border-[#987654]/60 text-[#E8DFD0] font-mono text-xs uppercase tracking-[0.12em] hover:bg-[#1C1A17] transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
-              disabled={submitting || universos.length === 0}
+              disabled={submitting || generating || universos.length === 0}
               className="flex-1 sm:flex-none min-h-[46px] px-6 py-2.5 bg-[#C5A059] text-[#0E0E0E] border border-[#C5A059] font-mono text-xs font-bold uppercase tracking-[0.12em] hover:bg-transparent hover:text-[#C5A059] transition-colors cursor-pointer disabled:opacity-50"
             >
               {submitting ? "Salvando..." : "Salvar"}
