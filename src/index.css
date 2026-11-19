@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+@theme {
+  /* Palette: Arquivo Histórico Editorial */
+  --color-void: #0E0E0E;
+  --color-surface: #131313;
+  --color-archive-1: #161616;
+  --color-archive-2: #1C1A17;
+  --color-surface-high: #2A2A2A;
+
+  --color-parchment: #E8DFD0;
+  --color-patina: #B3A898;
+  --color-ash: #726A5E;
+
+  --color-brass: #C5A059;
+  --color-brass-bright: #E9C176;
+  --color-bronze: #987654;
+  --color-terracotta: #DF6C4F;
+  --color-terracotta-soft: #FFB4A2;
+
+  /* Typography */
+  --font-display: "EB Garamond", Georgia, serif;
+  --font-serif: "Literata", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  html {
+    background-color: #0E0E0E;
+    color: #E8DFD0;
+    font-family: var(--font-serif);
+    scroll-behavior: smooth;
+    overflow-x: clip;
+  }
+
+  body {
+    background-color: #0E0E0E;
+    color: #E8DFD0;
+    min-height: 100vh;
+    overflow-x: clip;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+  }
+
+  /* Subtle dark museum scrollbars */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #0E0E0E;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2A2621;
+    border: 1px solid #98765455;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #C5A059;
+  }
+}
+
+/* Hide scrollbars cleanly for horizontally scrollable filter rows */
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Archival Dossier File Tab with 45-degree chamfered upper-right corner */
+.dossier-tab {
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+}
+
+/* Editorial Drop Cap for chronicle opening paragraphs */
+.archival-dropcap::first-letter {
+  font-family: var(--font-display);
+  color: #C5A059;
+  float: left;
+  font-size: clamp(3.1rem, 8vw, 4.1rem);
+  line-height: 0.78;
+  padding-top: 0.25rem;
+  padding-right: 0.65rem;
+  padding-bottom: 0.1rem;
+  font-weight: 400;
+}
+
+/* Archival hairline borders matching Bronze Envelhecido opacity spec */
+.hairline-bronze {
+  border-color: rgba(152, 118, 84, 0.35);
+}
+
+.hairline-bronze-hover:hover,
+.hairline-bronze-focus:focus-within {
+  border-color: rgba(152, 118, 84, 0.8);
+}
+
+/* Dashed archival binding divider */
+.divider-stitched {
+  border-top: 1px dashed #726A5E;
+}
+
+/* Focus visible accessibility ring in museum brass */
+:focus-visible {
+  outline: 1px solid #C5A059;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

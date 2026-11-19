@@ -1,0 +1,6 @@
+{
+  "name": "LoreVerse — Arquivo Histórico Editorial",
+  "description": "Gabinete curatorial de preservação histórica dedicado às grandes mitologias, personagens, eventos e locais da ficção.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
