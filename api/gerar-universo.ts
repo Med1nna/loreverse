@@ -3,13 +3,19 @@ import { Type } from "@google/genai";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   createGeminiClient,
-  GEMINI_MODEL,
+  GEMINI_OVERLOADED_MESSAGE,
+  GeminiOverloadedError,
+  GeminiTimeoutError,
+  generateContentResilient,
   isRateLimitError,
+  isTransientOverloadError,
   parseJsonBody,
   verifySupabaseAuth,
 } from "./_lib/serverUtils.js";
 
 const LOG_PREFIX = "[api/gerar-universo]";
+const MAX_TEMAS = 6;
+const MAX_RESUMO_CHARS = 140;
 
 const VALID_CATEGORIAS = new Set([
   "Personagem",
@@ -20,7 +26,7 @@ const VALID_CATEGORIAS = new Set([
 ]);
 
 const SYSTEM_INSTRUCTION =
-  "Você é um arquivista especialista em cultura geek. Para o universo informado, escreva em português do Brasil uma 'descricao' de 1 a 2 frases e liste de 6 a 8 'temas' de lore MAIS IMPORTANTES e FIÉIS AO CÂNONE OFICIAL, variando as categorias (pelo menos um Personagem, um Evento e um Local). 'resumo' com até 160 caracteres. Não invente fatos. Se o universo não existir ou for desconhecido, retorne temas vazio.";
+  "Você é um arquivista especialista em cultura geek. Para o universo informado, escreva em português do Brasil uma 'descricao' de 1 a 2 frases e liste no máximo 6 'temas' de lore MAIS IMPORTANTES e FIÉIS AO CÂNONE OFICIAL, variando as categorias (pelo menos um Personagem, um Evento e um Local). 'resumo' com até 140 caracteres. Não invente fatos. Se o universo não existir ou for desconhecido, retorne temas vazio.";
 
 export const config = {
   maxDuration: 60,
@@ -75,7 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 3. Call Gemini server-side only (no database writes)
+    // 3. Call Gemini server-side only (no database writes) with retries, fallback, and 45s timeout
     const ai = createGeminiClient(LOG_PREFIX);
     if (!ai) {
       return res.status(500).json({ error: "Serviço de IA indisponível." });
@@ -86,48 +92,51 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       promptLines.push(`Orientações adicionais do arquivista: ${orientacoes}`);
     }
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: promptLines.join("\n"),
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            descricao: {
-              type: Type.STRING,
-              description: "Descrição de 1 a 2 frases do universo em português do Brasil.",
-            },
-            temas: {
-              type: Type.ARRAY,
-              description:
-                "Lista de 6 a 8 temas de lore mais importantes e fiéis ao cânone oficial, ou lista vazia se o universo não existir ou for desconhecido.",
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  titulo: {
-                    type: Type.STRING,
-                    description: "Título canônico do tema.",
+    const response = await generateContentResilient(
+      ai,
+      {
+        contents: promptLines.join("\n"),
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              descricao: {
+                type: Type.STRING,
+                description: "Descrição de 1 a 2 frases do universo em português do Brasil.",
+              },
+              temas: {
+                type: Type.ARRAY,
+                description:
+                  "Lista de no máximo 6 temas de lore mais importantes e fiéis ao cânone oficial, ou lista vazia se o universo não existir ou for desconhecido.",
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    titulo: {
+                      type: Type.STRING,
+                      description: "Título canônico do tema.",
+                    },
+                    categoria: {
+                      type: Type.STRING,
+                      enum: ["Personagem", "Evento", "Local", "Facção", "Era"],
+                      description: "Categoria catalográfica do tema.",
+                    },
+                    resumo: {
+                      type: Type.STRING,
+                      description: "Resumo curto de até 140 caracteres.",
+                    },
                   },
-                  categoria: {
-                    type: Type.STRING,
-                    enum: ["Personagem", "Evento", "Local", "Facção", "Era"],
-                    description: "Categoria catalográfica do tema.",
-                  },
-                  resumo: {
-                    type: Type.STRING,
-                    description: "Resumo de até 160 caracteres.",
-                  },
+                  required: ["titulo", "categoria", "resumo"],
                 },
-                required: ["titulo", "categoria", "resumo"],
               },
             },
+            required: ["descricao", "temas"],
           },
-          required: ["descricao", "temas"],
         },
       },
-    });
+      LOG_PREFIX
+    );
 
     const rawText = (response.text ?? "").trim();
     if (!rawText) {
@@ -154,11 +163,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const seenTitles = new Set<string>();
 
     for (const item of generated.temas as RawTema[]) {
+      if (temas.length >= MAX_TEMAS) break;
       if (!item || typeof item !== "object") continue;
       const titulo = typeof item.titulo === "string" ? item.titulo.trim() : "";
       const categoria =
         typeof item.categoria === "string" ? item.categoria.trim() : "";
-      const resumo = typeof item.resumo === "string" ? item.resumo.trim() : "";
+      let resumo = typeof item.resumo === "string" ? item.resumo.trim() : "";
+      if (resumo.length > MAX_RESUMO_CHARS) {
+        resumo = `${resumo.slice(0, MAX_RESUMO_CHARS - 1).trimEnd()}…`;
+      }
 
       if (!titulo || !VALID_CATEGORIAS.has(categoria)) continue;
       const normalizedKey = titulo.toLowerCase();
@@ -181,6 +194,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (res.headersSent) {
       return;
+    }
+
+    if (error instanceof GeminiTimeoutError) {
+      return res.status(503).json({ error: "timeout" });
+    }
+
+    if (error instanceof GeminiOverloadedError || isTransientOverloadError(error)) {
+      return res.status(503).json({ error: GEMINI_OVERLOADED_MESSAGE });
     }
 
     if (isRateLimitError(error)) {

@@ -3,8 +3,12 @@ import { Type } from "@google/genai";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   createGeminiClient,
-  GEMINI_MODEL,
+  GEMINI_OVERLOADED_MESSAGE,
+  GeminiOverloadedError,
+  GeminiTimeoutError,
+  generateContentResilient,
   isRateLimitError,
+  isTransientOverloadError,
   parseJsonBody,
   verifySupabaseAuth,
 } from "./_lib/serverUtils.js";
@@ -57,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 3. Call Gemini server-side only
+    // 3. Call Gemini server-side only with retries, fallback, and 45s timeout
     const ai = createGeminiClient(LOG_PREFIX);
     if (!ai) {
       return res.status(500).json({ error: "Serviço de IA indisponível." });
@@ -72,29 +76,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       promptLines.push(`Orientações adicionais do arquivista: ${orientacoes}`);
     }
 
-    const response = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: promptLines.join("\n"),
-      config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            resumo: {
-              type: Type.STRING,
-              description: "Uma frase de até 160 caracteres resumindo a entrada.",
+    const response = await generateContentResilient(
+      ai,
+      {
+        contents: promptLines.join("\n"),
+        config: {
+          systemInstruction: SYSTEM_INSTRUCTION,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              resumo: {
+                type: Type.STRING,
+                description: "Uma frase de até 160 caracteres resumindo a entrada.",
+              },
+              conteudo: {
+                type: Type.STRING,
+                description:
+                  "De 3 a 5 parágrafos separados por uma linha em branco, sem títulos e sem markdown.",
+              },
             },
-            conteudo: {
-              type: Type.STRING,
-              description:
-                "De 3 a 5 parágrafos separados por uma linha em branco, sem títulos e sem markdown.",
-            },
+            required: ["resumo", "conteudo"],
           },
-          required: ["resumo", "conteudo"],
         },
       },
-    });
+      LOG_PREFIX
+    );
 
     const rawText = (response.text ?? "").trim();
     if (!rawText) {
@@ -126,6 +133,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     if (res.headersSent) {
       return;
+    }
+
+    if (error instanceof GeminiTimeoutError) {
+      return res.status(503).json({ error: "timeout" });
+    }
+
+    if (error instanceof GeminiOverloadedError || isTransientOverloadError(error)) {
+      return res.status(503).json({ error: GEMINI_OVERLOADED_MESSAGE });
     }
 
     if (isRateLimitError(error)) {

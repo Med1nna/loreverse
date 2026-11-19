@@ -145,6 +145,13 @@ export function HistoriaModal({
         return;
       }
 
+      if (response.status === 503) {
+        setAiError(
+          "A IA do Google está sobrecarregada no momento. Tente novamente em alguns instantes."
+        );
+        return;
+      }
+
       if (!response.ok) {
         setAiError("Não foi possível gerar o texto agora.");
         return;

@@ -262,6 +262,13 @@ export function GerarUniversoModal({
         return;
       }
 
+      if (response.status === 503) {
+        setFormError(
+          "A IA do Google está sobrecarregada no momento. Tente novamente em alguns instantes."
+        );
+        return;
+      }
+
       if (!response.ok) {
         setFormError("Não foi possível consultar os arquivos agora.");
         return;
@@ -455,6 +462,17 @@ export function GerarUniversoModal({
                   : idx > i
                     ? { ...p, status: "skipped" }
                     : p
+              )
+            );
+          } else if (response.status === 503) {
+            setProgressError(
+              "A IA do Google está sobrecarregada no momento. Tente novamente em alguns instantes."
+            );
+            setProgressItems((prev) =>
+              prev.map((p, idx) =>
+                idx === i
+                  ? { ...p, status: "error", errorDetail: "IA sobrecarregada" }
+                  : p
               )
             );
           } else if (!response.ok) {
