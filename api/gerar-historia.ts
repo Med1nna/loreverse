@@ -7,7 +7,7 @@ import {
   isRateLimitError,
   parseJsonBody,
   verifySupabaseAuth,
-} from "./_lib/serverUtils";
+} from "./_lib/serverUtils.js";
 
 const LOG_PREFIX = "[api/gerar-historia]";
 
@@ -22,40 +22,47 @@ interface GenerateStoryBody {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Método não permitido." });
-  }
-
-  // 1. Authenticate caller via Supabase Bearer JWT
-  const authResult = await verifySupabaseAuth(req, LOG_PREFIX);
-  if (authResult.ok === false) {
-    return res.status(authResult.status).json({ error: authResult.error });
-  }
-
-  // 2. Validate request body
-  const parsed = parseJsonBody<GenerateStoryBody>(req.body);
-  const universo =
-    typeof parsed.universo === "string" ? parsed.universo.trim() : "";
-  const titulo = typeof parsed.titulo === "string" ? parsed.titulo.trim() : "";
-  const categoria =
-    typeof parsed.categoria === "string" ? parsed.categoria.trim() : "";
-  const orientacoes =
-    typeof parsed.orientacoes === "string" ? parsed.orientacoes.trim() : "";
-
-  if (!universo || !titulo || !categoria) {
-    return res.status(400).json({
-      error: "Campos obrigatórios ausentes: universo, titulo e categoria.",
-    });
-  }
-
-  // 3. Call Gemini server-side only
-  const ai = createGeminiClient(LOG_PREFIX);
-  if (!ai) {
-    return res.status(500).json({ error: "Serviço de IA indisponível." });
-  }
-
   try {
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ error: "Método não permitido." });
+    }
+
+    // 1. Authenticate caller via Supabase Bearer JWT
+    const authResult = await verifySupabaseAuth(req, LOG_PREFIX);
+    if (authResult.ok === false) {
+      return res.status(authResult.status).json({ error: authResult.error });
+    }
+
+    // 2. Validate request body (guard against Vercel req.body JSON getter throwing)
+    let rawBody: unknown;
+    try {
+      rawBody = req.body;
+    } catch {
+      return res.status(400).json({ error: "Corpo JSON inválido." });
+    }
+
+    const parsed = parseJsonBody<GenerateStoryBody>(rawBody);
+    const universo =
+      typeof parsed.universo === "string" ? parsed.universo.trim() : "";
+    const titulo = typeof parsed.titulo === "string" ? parsed.titulo.trim() : "";
+    const categoria =
+      typeof parsed.categoria === "string" ? parsed.categoria.trim() : "";
+    const orientacoes =
+      typeof parsed.orientacoes === "string" ? parsed.orientacoes.trim() : "";
+
+    if (!universo || !titulo || !categoria) {
+      return res.status(400).json({
+        error: "Campos obrigatórios ausentes: universo, titulo e categoria.",
+      });
+    }
+
+    // 3. Call Gemini server-side only
+    const ai = createGeminiClient(LOG_PREFIX);
+    if (!ai) {
+      return res.status(500).json({ error: "Serviço de IA indisponível." });
+    }
+
     const promptLines = [
       `Universo: ${universo}`,
       `Título do registro: ${titulo}`,
@@ -116,6 +123,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     console.error(`${LOG_PREFIX} Erro ao gerar história com Gemini:`, error);
+
+    if (res.headersSent) {
+      return;
+    }
 
     if (isRateLimitError(error)) {
       return res.status(429).json({

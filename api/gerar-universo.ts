@@ -7,7 +7,7 @@ import {
   isRateLimitError,
   parseJsonBody,
   verifySupabaseAuth,
-} from "./_lib/serverUtils";
+} from "./_lib/serverUtils.js";
 
 const LOG_PREFIX = "[api/gerar-universo]";
 
@@ -44,36 +44,43 @@ interface ValidTema {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Método não permitido." });
-  }
-
-  // 1. Authenticate caller via Supabase Bearer JWT
-  const authResult = await verifySupabaseAuth(req, LOG_PREFIX);
-  if (authResult.ok === false) {
-    return res.status(authResult.status).json({ error: authResult.error });
-  }
-
-  // 2. Validate request body
-  const parsed = parseJsonBody<GenerateUniverseBody>(req.body);
-  const nome = typeof parsed.nome === "string" ? parsed.nome.trim() : "";
-  const orientacoes =
-    typeof parsed.orientacoes === "string" ? parsed.orientacoes.trim() : "";
-
-  if (!nome) {
-    return res.status(400).json({
-      error: "Campo obrigatório ausente: nome.",
-    });
-  }
-
-  // 3. Call Gemini server-side only (no database writes)
-  const ai = createGeminiClient(LOG_PREFIX);
-  if (!ai) {
-    return res.status(500).json({ error: "Serviço de IA indisponível." });
-  }
-
   try {
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ error: "Método não permitido." });
+    }
+
+    // 1. Authenticate caller via Supabase Bearer JWT
+    const authResult = await verifySupabaseAuth(req, LOG_PREFIX);
+    if (authResult.ok === false) {
+      return res.status(authResult.status).json({ error: authResult.error });
+    }
+
+    // 2. Validate request body (guard against Vercel req.body JSON getter throwing)
+    let rawBody: unknown;
+    try {
+      rawBody = req.body;
+    } catch {
+      return res.status(400).json({ error: "Corpo JSON inválido." });
+    }
+
+    const parsed = parseJsonBody<GenerateUniverseBody>(rawBody);
+    const nome = typeof parsed.nome === "string" ? parsed.nome.trim() : "";
+    const orientacoes =
+      typeof parsed.orientacoes === "string" ? parsed.orientacoes.trim() : "";
+
+    if (!nome) {
+      return res.status(400).json({
+        error: "Campo obrigatório ausente: nome.",
+      });
+    }
+
+    // 3. Call Gemini server-side only (no database writes)
+    const ai = createGeminiClient(LOG_PREFIX);
+    if (!ai) {
+      return res.status(500).json({ error: "Serviço de IA indisponível." });
+    }
+
     const promptLines = [`Universo: ${nome}`];
     if (orientacoes) {
       promptLines.push(`Orientações adicionais do arquivista: ${orientacoes}`);
@@ -171,6 +178,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   } catch (error) {
     console.error(`${LOG_PREFIX} Erro ao gerar universo com Gemini:`, error);
+
+    if (res.headersSent) {
+      return;
+    }
 
     if (isRateLimitError(error)) {
       return res.status(429).json({

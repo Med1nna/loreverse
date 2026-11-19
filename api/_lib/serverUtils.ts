@@ -17,7 +17,7 @@ export async function verifySupabaseAuth(
   req: VercelRequest,
   logPrefix: string
 ): Promise<AuthCheckResult> {
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers?.authorization;
   if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
     return {
       ok: false,
@@ -79,14 +79,19 @@ export function createGeminiClient(logPrefix: string): GoogleGenAI | null {
     return null;
   }
 
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        "User-Agent": "aistudio-build",
+  try {
+    return new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          "User-Agent": "aistudio-build",
+        },
       },
-    },
-  });
+    });
+  } catch (err) {
+    console.error(`${logPrefix} Erro ao inicializar cliente Gemini:`, err);
+    return null;
+  }
 }
 
 export function isRateLimitError(error: unknown): boolean {
